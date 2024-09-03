@@ -7,11 +7,10 @@ import RNFS from 'react-native-fs';
 import base64js from 'base64-js';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { Button, Card, Title, Paragraph, Snackbar } from 'react-native-paper';
-import * as Animatable from 'react-native-animatable';
 
-const REBOOT = 1;
-const READY_TO_RECEIVE = 2;
-const ERROR_NO_FREE = 3;
+const REBOOT = 0x01;
+const READY_TO_RECEIVE = 0x02;
+const ERROR_NO_FREE = 0x03;
 const CHUNK_LENGTH = 240;
 const SECTOR_SIZE = 8 * 1024;
 const bleManager = new BleManager();
@@ -57,7 +56,8 @@ const DeviceDetails = () => {
         if (!writeAddressCharacteristic.current || !indicateCharacteristic.current || !writeWithoutResponseCharacteristic.current) {
           throw new Error('Required characteristics not found');
         }
-           
+        
+        // Monitor notifications for status updates
         if (indicateCharacteristic.current) {
           await indicateCharacteristic.current.monitor(notifHandler);
         }
@@ -86,60 +86,55 @@ const DeviceDetails = () => {
       }
     };
   }, [deviceId]);
-  
-  const writeToCharacteristic = async (characteristic, data) => {
+
+  const createBaseAddressData = (actionCode, addressOffset, numSectors) => {
+    const offsetBytes = [
+      (addressOffset >> 16) & 0xFF,
+      (addressOffset >> 8) & 0xFF,
+      addressOffset & 0xFF
+    ];
+    return new Uint8Array([actionCode, ...offsetBytes, numSectors]);
+  };
+
+  const writeAddress = async (actionCode, numSectors) => {
+    const baseAddress = 0x080000; // Example address
+    const baseAddressData = createBaseAddressData(actionCode, baseAddress, numSectors);
+    
     try {
-      console.log('Writing data:', data);
-      await characteristic.writeWithoutResponse(data);
-      console.log('Write successful');
+      if (writeAddressCharacteristic.current) {
+        console.log('Writing address data:', baseAddressData);
+        await writeAddressCharacteristic.current.writeWithoutResponse(baseAddressData);
+        console.log('Address data written successfully.');
+      } else {
+        console.error('writeAddressCharacteristic is not initialized');
+        setError('writeAddressCharacteristic is not initialized');
+      }
     } catch (error) {
-      console.error('Error writing data:', error);
-      setError(`Error writing data: ${error.message}`);
+      console.error('Error writing address:', error.message);
+      setError(`Address write error: ${error.message}`);
     }
   };
-  
 
-  const writeAddress = async (uploadAction, nbSector) => {
-    const baseAddress = 0x080000;
-    const hexString = baseAddress.toString(16).padStart(6, '0');
-    let hexStringFirstPart = hexString.substring(0, 2);
-    let hexStringSecondPart = hexString.substring(2, 4);
-    let hexStringThirdPart = hexString.substring(4, 6);
-    hexStringFirstPart = parseInt(hexStringFirstPart, 16);
-    hexStringSecondPart = parseInt(hexStringSecondPart, 16);
-    hexStringThirdPart = parseInt(hexStringThirdPart, 16);
-    const nbSectorHex = nbSector.toString(16);
-
-    let myWord = new Uint8Array(5);
-    myWord[0] = parseInt(uploadAction, 16);
-    myWord[1] = hexStringFirstPart;
-    myWord[2] = hexStringSecondPart;
-    myWord[3] = hexStringThirdPart;
-    myWord[4] = parseInt(nbSectorHex, 16);
-
+  const writeToCharacteristic = async (characteristic, data) => {
     try {
-        if (writeAddressCharacteristic.current) {
-            await writeAddressCharacteristic.current.writeWithoutResponse(myWord);
-            console.log("Writing >> " + myWord);
-        } else {
-            console.error('writeAddressCharacteristic is not initialized');
-        }
+      console.log('Writing data:', new Uint8Array(data));
+      await characteristic.writeWithoutResponse(data);
+      console.log('Data written successfully.');
     } catch (error) {
-        console.log('Error: ' + error);
+      console.error('Error writing data:', error.message);
+      setError(`Data write error: ${error.message}`);
     }
-};
-
+  };
 
   const sliceAndSend = async () => {
     if (readyToReceive && fileContent) {
       let start = 0;
-      let end = CHUNK_LENGTH;
       let totalBytes = 0;
 
       while (start < fileLength) {
+        const end = Math.min(start + CHUNK_LENGTH, fileLength);
         const sub = fileContent.data.slice(start, end);
         start = end;
-        end = start + CHUNK_LENGTH;
         await writeToCharacteristic(writeWithoutResponseCharacteristic.current, sub);
         totalBytes += sub.byteLength;
         const progress = (totalBytes * 100) / fileLength;
@@ -164,6 +159,7 @@ const DeviceDetails = () => {
       sliceAndSend();
     } else if (buf[0] === ERROR_NO_FREE) {
       console.log('Error no Free');
+      setError('Error: Device cannot accept new firmware.');
     }
   };
   
@@ -188,7 +184,6 @@ const DeviceDetails = () => {
       }
     }
   };
-  
 
   const handleUpload = async () => {
     if (fileContent) {
@@ -232,20 +227,22 @@ const DeviceDetails = () => {
         {isUploading ? 'Uploading...' : 'Upload Firmware'}
       </Button>
       {isUploading && (
-      <ActivityIndicator size="large" color="#007bff" style={styles.loadingIndicator} />
+        <ActivityIndicator size="large" color="#007bff" style={styles.loadingIndicator} />
       )}
-      {error ? (
+      {statusMessage && <Text style={styles.statusMessage}>{statusMessage}</Text>}
+      {error && (
         <Snackbar
           visible={!!error}
           onDismiss={() => setError('')}
           duration={Snackbar.DURATION_LONG}
-          style={styles.snackbar}
+          action={{
+            label: 'Dismiss',
+            onPress: () => setError(''),
+          }}
         >
           {error}
         </Snackbar>
-      ) : null}
-      {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
-      <Text style={styles.progressText}>Upload Progress: {progress.toFixed(2)}%</Text>
+      )}
     </View>
   );
 };
@@ -253,52 +250,36 @@ const DeviceDetails = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
     padding: 16,
+    backgroundColor: '#fff',
   },
   card: {
-    width: '90%',
-    marginBottom: 20,
-    elevation: 3,
+    marginBottom: 16,
   },
   infoCard: {
-    width: '90%',
-    marginBottom: 20,
-    elevation: 3,
+    marginBottom: 16,
   },
   button: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#007bff',
-    padding: 10,
-    borderRadius: 8,
+    padding: 16,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
     color: '#fff',
     fontSize: 16,
-    marginLeft: 10,
   },
   uploadButton: {
-    width: '80%',
-    marginTop: 20,
+    marginBottom: 16,
   },
   loadingIndicator: {
-    marginTop: 20,
+    marginVertical: 16,
   },
-  snackbar: {
-    backgroundColor: 'red',
-  },
-  statusText: {
-    fontSize: 18,
-    color: '#007bff',
-    margin: 10,
-  },
-  progressText: {
+  statusMessage: {
+    marginVertical: 16,
     fontSize: 16,
-    color: '#28a745',
-    marginTop: 10,
+    color: '#007bff',
   },
 });
 
