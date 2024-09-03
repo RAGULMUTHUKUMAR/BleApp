@@ -1,0 +1,162 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, Button, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native';
+import Icon from 'react-native-vector-icons/FontAwesome';
+import { BleManager } from 'react-native-ble-plx';
+
+const P2Pserver = () => {
+  const [manager] = useState(new BleManager());
+  const [readWriteCharacteristic, setReadWriteCharacteristic] = useState(null);
+  const [notifyCharacteristic, setNotifyCharacteristic] = useState(null);
+  const [rebootCharacteristic, setRebootCharacteristic] = useState(null);
+  const [isLightOn, setIsLightOn] = useState(false);
+  const [notificationEnabled, setNotificationEnabled] = useState(false);
+  const [writeValue, setWriteValue] = useState('');
+
+  useEffect(() => {
+    const fetchCharacteristics = async () => {
+      try {
+        const devices = await manager.requestDevice({ filters: [{ services: ['0000fe41-8e22-4541-9d4c-21edae82ed19'] }] });
+        const device = devices;
+        await device.connect();
+        const services = await device.discoverAllServicesAndCharacteristics();
+
+        services.characteristics.forEach(characteristic => {
+          switch (characteristic.uuid) {
+            case '0000fe42-8e22-4541-9d4c-21edae82ed19':
+              setNotifyCharacteristic(characteristic);
+              break;
+            case '0000fe41-8e22-4541-9d4c-21edae82ed19':
+              setReadWriteCharacteristic(characteristic);
+              break;
+            case '0000fe11-8e22-4541-9d4c-21edae82ed19':
+              setRebootCharacteristic(characteristic);
+              break;
+            default:
+              console.log('# No characteristics found..');
+          }
+        });
+      } catch (error) {
+        console.log('Error fetching characteristics:', error);
+      }
+    };
+
+    fetchCharacteristics();
+  }, [manager]);
+
+  const handleWrite = async () => {
+    if (!readWriteCharacteristic) return;
+    try {
+      const value = new Uint8Array([parseInt(writeValue.slice(0, 2), 16), parseInt(writeValue.slice(2, 4), 16)]);
+      await readWriteCharacteristic.writeWithoutResponse(value);
+      Alert.alert('Success', `Written value: ${writeValue}`);
+    } catch (error) {
+      console.log('Error writing value:', error);
+    }
+  };
+
+  const handleRead = async () => {
+    if (!readWriteCharacteristic) return;
+    try {
+      const value = await readWriteCharacteristic.read();
+      const statusWord = new Uint8Array(value);
+      Alert.alert('Read Value', `0x${statusWord.toString('hex')}`);
+    } catch (error) {
+      console.log('Error reading value:', error);
+    }
+  };
+
+  const toggleLight = async () => {
+    if (!readWriteCharacteristic) return;
+    try {
+      const newStatus = isLightOn ? [0x01, 0x00] : [0x01, 0x01];
+      await readWriteCharacteristic.writeWithoutResponse(newStatus);
+      setIsLightOn(!isLightOn);
+    } catch (error) {
+      console.log('Error toggling light:', error);
+    }
+  };
+
+  const toggleNotification = async () => {
+    if (!notifyCharacteristic) return;
+    try {
+      if (notificationEnabled) {
+        await notifyCharacteristic.stopNotifications();
+        setNotificationEnabled(false);
+      } else {
+        await notifyCharacteristic.startNotifications();
+        notifyCharacteristic.onValueChange(value => {
+          const buf = new Uint8Array(value);
+          Alert.alert('Notification Received', `0x${buf.toString('hex')}`);
+          setIsLightOn(buf[1] === 1);
+        });
+        setNotificationEnabled(true);
+      }
+    } catch (error) {
+      console.log('Error toggling notification:', error);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.row}>
+        <TouchableOpacity onPress={toggleLight} style={styles.iconButton}>
+          <Icon name={isLightOn ? 'sun-o' : 'moon-o'} size={30} color="#900" />
+          <Text style={styles.iconLabel}>{isLightOn ? 'Light ON' : 'Light OFF'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={toggleNotification} style={styles.iconButton}>
+          <Icon name={notificationEnabled ? 'bell' : 'bell-o'} size={30} color="#900" />
+          <Text style={styles.iconLabel}>{notificationEnabled ? 'Notify ON' : 'Notify OFF'}</Text>
+        </TouchableOpacity>
+      </View>
+      <TextInput
+        style={styles.input}
+        placeholder="Enter value (e.g., 0101)"
+        value={writeValue}
+        onChangeText={setWriteValue}
+        maxLength={4}
+      />
+      <TouchableOpacity onPress={handleWrite} style={styles.actionButton}>
+        <Icon name="upload" size={30} color="#900" />
+        <Text>Write</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={handleRead} style={styles.actionButton}>
+        <Icon name="download" size={30} color="#900" />
+        <Text>Read</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  row: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  iconButton: {
+    marginHorizontal: 20,
+    alignItems: 'center',
+  },
+  iconLabel: {
+    marginTop: 5,
+  },
+  input: {
+    height: 40,
+    borderColor: 'gray',
+    borderWidth: 1,
+    marginBottom: 20,
+    width: '80%',
+    paddingHorizontal: 10,
+  },
+  actionButton: {
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+});
+
+export default P2Pserver;
