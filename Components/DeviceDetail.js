@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, View, Text, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import { useRoute } from '@react-navigation/native';
 import { BleManager } from 'react-native-ble-plx';
 import RNFS from 'react-native-fs';
 import base64js from 'base64-js';
-import Buffer from 'buffer'; // Ensure you import Buffer if using it
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { Button, Card, Title, Paragraph, Snackbar } from 'react-native-paper';
+import * as Animatable from 'react-native-animatable';
 
+const REBOOT = 1;
+const READY_TO_RECEIVE = 2;
+const ERROR_NO_FREE = 3;
 const CHUNK_LENGTH = 240;
+const SECTOR_SIZE = 8 * 1024;
 const bleManager = new BleManager();
 
 const DeviceDetails = () => {
@@ -51,8 +57,10 @@ const DeviceDetails = () => {
         if (!writeAddressCharacteristic.current || !indicateCharacteristic.current || !writeWithoutResponseCharacteristic.current) {
           throw new Error('Required characteristics not found');
         }
-
-        await enableIndication();
+           
+        if (indicateCharacteristic.current) {
+          await indicateCharacteristic.current.monitor(notifHandler);
+        }
 
         setDevice(connectedDevice);
         setStatusMessage('Connected and ready for firmware upload');
@@ -72,141 +80,93 @@ const DeviceDetails = () => {
       isMounted.current = false;
       if (device) {
         if (indicateCharacteristic.current) {
-          indicateCharacteristic.current.removeAllListeners(); // Ensure this is correct
+          indicateCharacteristic.current.removeAllListeners();
         }
         bleManager.cancelDeviceConnection(deviceId).catch(console.error);
       }
     };
   }, [deviceId]);
-
-  const enableIndication = async () => {
+  
+  const writeToCharacteristic = async (characteristic, data) => {
     try {
-      if (indicateCharacteristic.current) {
-        // Subscribe to notifications
-        await indicateCharacteristic.current.monitor((error, characteristic) => {
-          if (error) {
-            console.error('Error in monitoring:', error.message);
-            return;
-          }
-          notifHandler(characteristic);
-        });
-        console.log('Monitoring started successfully');
-      } else {
-        console.error('Indicate characteristic not found.');
-      }
+      console.log('Writing data:', data);
+      await characteristic.writeWithoutResponse(data);
+      console.log('Write successful');
     } catch (error) {
-      console.error('Error enabling indications:', error.message);
-    }
-  };
-
-  const writeToCharacteristic = async (data) => {
-    try {
-      await writeWithoutResponseCharacteristic.current.writeWithoutResponse(data);
-    } catch (error) {
+      console.error('Error writing data:', error);
       setError(`Error writing data: ${error.message}`);
     }
   };
+  
 
-  const writeAddress = async (action, nbSector) => {
+  const writeAddress = async (uploadAction, nbSector) => {
+    const baseAddress = 0x080000;
+    const hexString = baseAddress.toString(16).padStart(6, '0');
+    let hexStringFirstPart = hexString.substring(0, 2);
+    let hexStringSecondPart = hexString.substring(2, 4);
+    let hexStringThirdPart = hexString.substring(4, 6);
+    hexStringFirstPart = parseInt(hexStringFirstPart, 16);
+    hexStringSecondPart = parseInt(hexStringSecondPart, 16);
+    hexStringThirdPart = parseInt(hexStringThirdPart, 16);
+    const nbSectorHex = nbSector.toString(16);
+
+    let myWord = new Uint8Array(5);
+    myWord[0] = parseInt(uploadAction, 16);
+    myWord[1] = hexStringFirstPart;
+    myWord[2] = hexStringSecondPart;
+    myWord[3] = hexStringThirdPart;
+    myWord[4] = parseInt(nbSectorHex, 16);
+
     try {
-      const address = '080000';
-      const addressBytes = address.match(/.{1,2}/g).map(h => parseInt(h, 16));
-      const nbSectorByte = new Uint8Array([nbSector]);
-  
-      const dataToWrite = new Uint8Array([action, ...addressBytes, ...nbSectorByte]);
-  
-      console.log('Data to write:', dataToWrite);
-  
-      // Write to the characteristic
-      await writeAddressCharacteristic.current.writeWithoutResponse(dataToWrite.buffer);
-      console.log('Write operation successful for action:', action);
+        if (writeAddressCharacteristic.current) {
+            await writeAddressCharacteristic.current.writeWithoutResponse(myWord);
+            console.log("Writing >> " + myWord);
+        } else {
+            console.error('writeAddressCharacteristic is not initialized');
+        }
     } catch (error) {
-      setError(`Error writing address: ${error.message}`);
-      console.error('Write address operation failed:', error.message);
+        console.log('Error: ' + error);
     }
-  };
-  
+};
+
 
   const sliceAndSend = async () => {
-    if (readyToReceive && fileContent && writeWithoutResponseCharacteristic.current) {
-      const chunkSize = CHUNK_LENGTH; // Adjust based on your BLE device’s characteristic value length
+    if (readyToReceive && fileContent) {
       let start = 0;
+      let end = CHUNK_LENGTH;
+      let totalBytes = 0;
 
-      // Ensure progress is reset
-      setProgress(0);
-
-      const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-      try {
-        // Read the firmware file in base64 format
-        const firmwarePath = fileContent.uri.replace('file://', '');
-        const firmwareData = await RNFS.readFile(firmwarePath, 'base64');
-
-        // Send data in chunks
-        while (start < firmwareData.length) {
-          const chunk = firmwareData.slice(start, start + chunkSize);
-          const chunkBuffer = Buffer.from(chunk, 'base64'); // Convert base64 chunk to Buffer
-
-          console.log('Sending chunk:', chunkBuffer); // Debugging line
-          await writeWithoutResponseCharacteristic.current.writeWithoutResponse(chunkBuffer);
-
-          // Update progress
-          const totalBytes = Math.min(start + chunkSize, firmwareData.length);
-          setProgress((totalBytes * 100) / firmwareData.length);
-
-          // Delay between chunks
-          await delay(100); // Adjust delay as needed
-
-          start += chunkSize;
-        }
-
-        // Finalize the upload
-        const fileUploadFinished = new Uint8Array([0x07]); // 0x07 indicates upload finish
-        await writeWithoutResponseCharacteristic.current.writeWithoutResponse(fileUploadFinished);
-
-        // Notify user of completion
-        Alert.alert('Upload Complete', 'Firmware upload is complete.');
-
-      } catch (error) {
-        setError(`Error during upload: ${error.message}`);
-        console.error('Error during upload:', error.message);
+      while (start < fileLength) {
+        const sub = fileContent.data.slice(start, end);
+        start = end;
+        end = start + CHUNK_LENGTH;
+        await writeToCharacteristic(writeWithoutResponseCharacteristic.current, sub);
+        totalBytes += sub.byteLength;
+        const progress = (totalBytes * 100) / fileLength;
+        setProgress(progress);
       }
+
+      const fileUploadFinished = new Uint8Array([0x07]);
+      await writeToCharacteristic(writeAddressCharacteristic.current, fileUploadFinished.buffer);
+      console.log('File upload finished.');
+      setIsUploading(false);
     } else {
-      console.warn('Not ready to receive or file content is missing.');
+      console.log('Not ready to receive or no file content.');
     }
   };
 
   const notifHandler = (characteristic) => {
-    if (characteristic && characteristic.value) {
-      const buffer = base64js.toByteArray(characteristic.value);
-      console.log('Received raw buffer:', buffer);
-      const buf = new Uint8Array(buffer);
-      console.log('Processed buffer:', buf);
-
-      switch (buf[0]) {
-        case 1:
-          // Reboot Required
-          Alert.alert('Reboot Required', 'Programming... Please wait');
-          break;
-        case 2:
-          // Ready to Receive
-          setReadyToReceive(true);
-          sliceAndSend();
-          break;
-        case 3:
-          // Error: No space available
-          Alert.alert('Error', 'No space available on the device. Please free up space and try again.');
-          setReadyToReceive(false); // Stop further operations
-          break;
-        default:
-          console.warn('Unhandled notification code:', buf[0]);
-          break;
-      }
-    } else {
-      console.error('Notification event is null or does not contain a value:', characteristic);
+    const buf = new Uint8Array(characteristic.value.buffer);
+    if (buf[0] === REBOOT) {
+      Alert.alert('Programming...', 'Please wait');
+    } else if (buf[0] === READY_TO_RECEIVE) {
+      setReadyToReceive(true);
+      sliceAndSend();
+    } else if (buf[0] === ERROR_NO_FREE) {
+      console.log('Error no Free');
     }
   };
-
+  
   const handleFileSelection = async () => {
     try {
       const res = await DocumentPicker.pick({
@@ -228,32 +188,62 @@ const DeviceDetails = () => {
       }
     }
   };
+  
 
   const handleUpload = async () => {
     if (fileContent) {
       setIsUploading(true);
       setStatusMessage('Preparing to upload...');
-      await writeAddress(1, 24); // Update to use 24 sectors
-      setIsUploading(false);
+      await writeAddress(0x01, Math.ceil(fileLength / SECTOR_SIZE)); // START User Data Upload
+      sliceAndSend();
     }
   };
 
   return (
     <View style={styles.container}>
-      <Button title="Select Firmware File" onPress={handleFileSelection} />
+      <Card style={styles.card}>
+        <Card.Content>
+          <Title>Firmware Upload</Title>
+          <Paragraph>Select and upload firmware files to your device.</Paragraph>
+        </Card.Content>
+        <Card.Actions>
+          <TouchableOpacity onPress={handleFileSelection} style={styles.button}>
+            <Icon name="file-upload" size={24} color="#fff" />
+            <Text style={styles.buttonText}>Select Firmware File</Text>
+          </TouchableOpacity>
+        </Card.Actions>
+      </Card>
       {fileContent && (
-        <View style={styles.infoContainer}>
-          <Text style={styles.infoText}>Selected File: {fileContent.uri}</Text>
-          <Text style={styles.infoText}>File Size: {fileLength} bytes</Text>
-        </View>
+        <Card style={styles.infoCard}>
+          <Card.Content>
+            <Title>Selected File</Title>
+            <Paragraph>{fileContent.uri}</Paragraph>
+            <Paragraph>File Size: {fileLength} bytes</Paragraph>
+          </Card.Content>
+        </Card>
       )}
       <Button
-        title="Upload Firmware"
+        mode="contained"
+        icon="upload"
         onPress={handleUpload}
         disabled={isUploadButtonDisabled || isUploading}
-      />
-      {isUploading && <ActivityIndicator size="large" color="#0000ff" />}
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        style={styles.uploadButton}
+      >
+        {isUploading ? 'Uploading...' : 'Upload Firmware'}
+      </Button>
+      {isUploading && (
+      <ActivityIndicator size="large" color="#007bff" style={styles.loadingIndicator} />
+      )}
+      {error ? (
+        <Snackbar
+          visible={!!error}
+          onDismiss={() => setError('')}
+          duration={Snackbar.DURATION_LONG}
+          style={styles.snackbar}
+        >
+          {error}
+        </Snackbar>
+      ) : null}
       {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
       <Text style={styles.progressText}>Upload Progress: {progress.toFixed(2)}%</Text>
     </View>
@@ -265,25 +255,50 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    padding: 16,
   },
-  infoContainer: {
-    margin: 10,
+  card: {
+    width: '90%',
+    marginBottom: 20,
+    elevation: 3,
   },
-  infoText: {
+  infoCard: {
+    width: '90%',
+    marginBottom: 20,
+    elevation: 3,
+  },
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#007bff',
+    padding: 10,
+    borderRadius: 8,
+  },
+  buttonText: {
+    color: '#fff',
     fontSize: 16,
-    color: '#333',
+    marginLeft: 10,
   },
-  errorText: {
-    fontSize: 16,
-    color: 'red',
+  uploadButton: {
+    width: '80%',
+    marginTop: 20,
+  },
+  loadingIndicator: {
+    marginTop: 20,
+  },
+  snackbar: {
+    backgroundColor: 'red',
   },
   statusText: {
-    fontSize: 16,
-    color: 'blue',
+    fontSize: 18,
+    color: '#007bff',
+    margin: 10,
   },
   progressText: {
     fontSize: 16,
-    color: 'green',
+    color: '#28a745',
+    marginTop: 10,
   },
 });
 
