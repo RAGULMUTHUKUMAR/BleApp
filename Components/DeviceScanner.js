@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Text,
   View,
@@ -13,15 +13,15 @@ import {
   Animated,
   Easing,
   useColorScheme,
-} from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { BleManager } from "react-native-ble-plx";
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { BleManager } from 'react-native-ble-plx';
 
 const bleManager = new BleManager();
 
 const requestPermissions = async () => {
-  if (Platform.OS === "android") {
+  if (Platform.OS === 'android') {
     try {
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
@@ -31,18 +31,18 @@ const requestPermissions = async () => {
       ]);
 
       if (
-        granted["android.permission.ACCESS_FINE_LOCATION"] ===
+        granted['android.permission.ACCESS_FINE_LOCATION'] ===
           PermissionsAndroid.RESULTS.GRANTED &&
-        granted["android.permission.BLUETOOTH_SCAN"] ===
+        granted['android.permission.BLUETOOTH_SCAN'] ===
           PermissionsAndroid.RESULTS.GRANTED &&
-        granted["android.permission.BLUETOOTH_CONNECT"] ===
+        granted['android.permission.BLUETOOTH_CONNECT'] ===
           PermissionsAndroid.RESULTS.GRANTED &&
-        granted["android.permission.BLUETOOTH_ADVERTISE"] ===
+        granted['android.permission.BLUETOOTH_ADVERTISE'] ===
           PermissionsAndroid.RESULTS.GRANTED
       ) {
-        console.log("All permissions granted");
+        console.log('All permissions granted');
       } else {
-        Alert.alert("Permissions Denied", "Required permissions were not granted.");
+        Alert.alert('Permissions Denied', 'Required permissions were not granted.');
       }
     } catch (err) {
       console.warn(err);
@@ -52,11 +52,11 @@ const requestPermissions = async () => {
 
 const checkBluetoothStatus = async () => {
   const state = await bleManager.state();
-  if (state !== "StatePoweredOn") {
+  if (state !== 'StatePoweredOn') {
     Alert.alert(
-      "Bluetooth is off",
-      "Please enable Bluetooth to use this feature.",
-      [{ text: "OK" }]
+      'Bluetooth is off',
+      'Please enable Bluetooth to use this feature.',
+      [{ text: 'OK' }]
     );
   }
 };
@@ -74,11 +74,11 @@ const DeviceScanner = () => {
     checkBluetoothStatus();
 
     const handleStateChange = (state) => {
-      if (state !== "StatePoweredOn") {
+      if (state !== 'StatePoweredOn') {
         Alert.alert(
-          "Bluetooth is off",
-          "Please enable Bluetooth to use this feature.",
-          [{ text: "OK" }]
+          'Bluetooth is off',
+          'Please enable Bluetooth to use this feature.',
+          [{ text: 'OK' }]
         );
       }
     };
@@ -142,22 +142,22 @@ const DeviceScanner = () => {
   }, []);
 
   const handleDevicePress = (device) => {
-    navigation.navigate("DeviceDetail", { deviceId: device.id });
+    navigation.navigate('DeviceDetail', { deviceId: device.id });
   };
 
   const getManufacturerIcon = (name) => {
-    return name ? "bluetooth" : "bluetooth-off";
+    return name ? 'bluetooth' : 'bluetooth-off';
   };
 
   return (
     <View
       style={[
         styles.container,
-        colorScheme === "dark" ? styles.darkContainer : styles.lightContainer,
+        colorScheme === 'dark' ? styles.darkContainer : styles.lightContainer,
       ]}
     >
       <StatusBar
-        barStyle={colorScheme === "dark" ? "light-content" : "dark-content"}
+        barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'}
       />
       <TouchableOpacity style={styles.scanButton} onPress={scanDevices}>
         <MaterialCommunityIcons name="bluetooth" size={24} color="white" />
@@ -171,7 +171,7 @@ const DeviceScanner = () => {
                   {
                     rotate: scanAnimation.interpolate({
                       inputRange: [0, 1],
-                      outputRange: ["0deg", "360deg"],
+                      outputRange: ['0deg', '360deg'],
                     }),
                   },
                 ],
@@ -193,7 +193,7 @@ const DeviceScanner = () => {
           <TouchableOpacity
             style={[
               styles.deviceContainer,
-              colorScheme === "dark"
+              colorScheme === 'dark'
                 ? styles.darkDeviceContainer
                 : styles.lightDeviceContainer,
             ]}
@@ -202,22 +202,22 @@ const DeviceScanner = () => {
             <MaterialCommunityIcons
               name={getManufacturerIcon(item.name)}
               size={24}
-              color={colorScheme === "dark" ? "white" : "black"}
+              color={colorScheme === 'dark' ? 'white' : 'black'}
               style={styles.deviceIcon}
             />
             <View style={styles.deviceInfo}>
               <Text
                 style={[
                   styles.deviceName,
-                  { color: colorScheme === "dark" ? "white" : "black" },
+                  { color: colorScheme === 'dark' ? 'white' : 'black' },
                 ]}
               >
-                {item.name || "Unknown Device"}
+                {item.name || 'Unknown Device'}
               </Text>
               <Text
                 style={[
                   styles.deviceId,
-                  { color: colorScheme === "dark" ? "#cccccc" : "black" },
+                  { color: colorScheme === 'dark' ? '#cccccc' : 'black' },
                 ]}
               >
                 ID: {item.id}
@@ -225,10 +225,10 @@ const DeviceScanner = () => {
               <Text
                 style={[
                   styles.deviceRssi,
-                  { color: colorScheme === "dark" ? "#cccccc" : "black" },
+                  { color: colorScheme === 'dark' ? '#cccccc' : 'black' },
                 ]}
               >
-                RSSI: {item.rssi || "N/A"} dBm
+                RSSI: {item.rssi || 'N/A'} dBm
               </Text>
             </View>
           </TouchableOpacity>
@@ -245,26 +245,26 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   lightContainer: {
-    backgroundColor: "#ffffff",
+    backgroundColor: '#ffffff',
   },
   darkContainer: {
-    backgroundColor: "#1e1e1e",
+    backgroundColor: '#1e1e1e',
   },
   scanButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#007BFF",
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#007BFF',
     padding: 15,
     borderRadius: 10,
-    justifyContent: "center",
+    justifyContent: 'center',
     marginBottom: 20,
-    shadowColor: "#000",
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
   scanButtonText: {
-    color: "white",
+    color: 'white',
     marginLeft: 10,
     fontSize: 18,
   },
@@ -275,23 +275,23 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
   errorText: {
-    color: "red",
+    color: 'red',
     marginVertical: 10,
-    textAlign: "center",
+    textAlign: 'center',
   },
   deviceContainer: {
-    flexDirection: "row",
+    flexDirection: 'row',
     padding: 15,
     marginBottom: 10,
     borderRadius: 10,
-    alignItems: "center",
-    backgroundColor: "#f9f9f9",
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9',
   },
   lightDeviceContainer: {
-    backgroundColor: "#ffffff",
+    backgroundColor: '#ffffff',
   },
   darkDeviceContainer: {
-    backgroundColor: "#2e2e2e",
+    backgroundColor: '#2e2e2e',
   },
   deviceIcon: {
     marginRight: 15,
@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
   },
   deviceName: {
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: 'bold',
   },
   deviceId: {
     fontSize: 14,
