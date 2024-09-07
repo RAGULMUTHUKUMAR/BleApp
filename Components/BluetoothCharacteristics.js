@@ -1,46 +1,58 @@
-// BluetoothCharacteristics.js
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BleManager } from 'react-native-ble-plx';
 
-const bleManager = new BleManager();
+const SERVICE_UUID = '0000FE20-cc7a-482a-984a-7f2ed5b3e58f'; // OTA Service UUID
 
 export const useBluetoothCharacteristics = (deviceId) => {
-  const [writeAddressCharacteristic, setWriteAddressCharacteristic] = useState(null);
-  const [indicateCharacteristic, setIndicateCharacteristic] = useState(null);
-  const [writeWithoutResponseCharacteristic, setWriteWithoutResponseCharacteristic] = useState(null);
+  const [characteristics, setCharacteristics] = useState({
+    writeAddressCharacteristic: null,
+    writeWithoutResponseCharacteristic: null,
+    indicateCharacteristic: null,
+  });
 
   useEffect(() => {
-    const connectToDevice = async () => {
+    const manager = new BleManager();
+
+    const fetchCharacteristics = async () => {
       try {
-        const device = await bleManager.connectToDevice(deviceId);
+        const device = await manager.connectToDevice(deviceId);
         await device.discoverAllServicesAndCharacteristics();
-
+        
         const services = await device.services();
-        const service = services.find(s => s.uuid === '0000fe20-cc7a-482a-984a-7f2ed5b3e58f');
+        const characteristics = [];
 
-        if (!service) {
-          throw new Error('OTA service not found');
+
+        console.log('services: ', services);
+
+        for (const service of services) {
+          const chars = await device.characteristicsForService(service.uuid);
+          characteristics.push(...chars);
         }
 
-        const characteristics = await service.characteristics();
-        setWriteAddressCharacteristic(characteristics.find(c => c.uuid === '0000fe22-8e22-4541-9d4c-21edae82ed19'));
-        setIndicateCharacteristic(characteristics.find(c => c.uuid === '0000fe23-8e22-4541-9d4c-21edae82ed19'));
-        setWriteWithoutResponseCharacteristic(characteristics.find(c => c.uuid === '0000fe24-8e22-4541-9d4c-21edae82ed19'));
+        console.log(characteristics);
+        
+
+        const writeAddressCharacteristic = characteristics.find(c => c.uuid === '0000fe22-8e22-4541-9d4c-21edae82ed19');
+        const writeWithoutResponseCharacteristic = characteristics.find(c => c.uuid === '0000fe24-8e22-4541-9d4c-21edae82ed19');
+
+        const indicateCharacteristic = characteristics.find(c => c.uuid === '0000fe23-8e22-4541-9d4c-21edae82ed19');
+
+        setCharacteristics({
+          writeAddressCharacteristic,
+          writeWithoutResponseCharacteristic,
+          indicateCharacteristic,
+        });
       } catch (error) {
-        console.error('Error connecting to device:', error);
+        console.error('Error fetching characteristics:', error.message);
       }
     };
 
-    connectToDevice();
+    fetchCharacteristics();
 
     return () => {
-      bleManager.cancelDeviceConnection(deviceId);
+      manager.cancelDeviceConnection(deviceId);
     };
   }, [deviceId]);
 
-  return {
-    writeAddressCharacteristic,
-    indicateCharacteristic,
-    writeWithoutResponseCharacteristic,
-  };
+  return characteristics;
 };

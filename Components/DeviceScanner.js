@@ -142,7 +142,7 @@ const DeviceScanner = () => {
   }, []);
 
   const handleDevicePress = (device) => {
-    navigation.navigate('DeviceDetail', { deviceId: device.id });
+    navigation.navigate('DeviceDetails', { deviceId: device.id });
   };
 
   const getManufacturerIcon = (name) => {
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   list: {
-    paddingBottom: 20,
+    paddingTop: 10,
   },
 });
 

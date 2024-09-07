@@ -11,11 +11,10 @@ const App = () => {
     <NavigationContainer>
       <Stack.Navigator initialRouteName="DeviceScanner">
         <Stack.Screen name="DeviceScanner" component={DeviceScanner} />
-        <Stack.Screen name="DeviceDetail" component={DeviceDetails} />
-        </Stack.Navigator>
+        <Stack.Screen name="DeviceDetails" component={DeviceDetails} />
+      </Stack.Navigator>
     </NavigationContainer>
   );
 };
-
 
 export default App;
