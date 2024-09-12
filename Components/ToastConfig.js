@@ -7,7 +7,7 @@ import Like1Icon from "react-native-vector-icons/AntDesign";
 const toastConfig = {
   success: (internalToast) => (
     <View style={[styles.toastContainer, styles.successToast]}>
-      <Like1Icon name="like1" size={24} color="#28a745" />
+      <Like1Icon name="like1" size={20} color="#28a745" />
       <View style={styles.textContainer}>
         <Text style={styles.toastTitle}>{internalToast.text1}</Text>
         <Text style={styles.toastMessage}>{internalToast.text2}</Text>
@@ -16,7 +16,7 @@ const toastConfig = {
   ),
   error: (internalToast) => (
     <View style={[styles.toastContainer, styles.errorToast]}>
-      <ErrorIcon name="error" size={24} color="#dc3545" />
+      <ErrorIcon name="error" size={20} color="#dc3545" />
       <View style={styles.textContainer}>
         <Text style={styles.toastTitle}>{internalToast.text1}</Text>
         <Text style={styles.toastMessage}>{internalToast.text2}</Text>
@@ -25,7 +25,7 @@ const toastConfig = {
   ),
   info: (internalToast) => (
     <View style={[styles.toastContainer, styles.infoToast]}>
-      <InfoIcon name="info" size={24} color="#17a2b8" />
+      <InfoIcon name="info" size={20} color="#17a2b8" />
       <View style={styles.textContainer}>
         <Text style={styles.toastTitle}>{internalToast.text1}</Text>
         <Text style={styles.toastMessage}>{internalToast.text2}</Text>
@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 10,
     elevation: 5,
-    maxWidth: '85%', // Ensure toast does not overflow screen
+    maxWidth: "85%", // Ensure toast does not overflow screen
   },
   textContainer: {
     marginLeft: 10,

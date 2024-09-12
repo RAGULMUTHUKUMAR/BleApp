@@ -154,45 +154,48 @@ const DeviceScanner = () => {
 
   const getManufacturerIcon = (name) => {
     if (!name) return "bluetooth-off"; // icon for unknown devices
-  
+
     // Specific Bluetooth Device Icons
     if (name.includes("Speaker")) {
       return "speaker-bluetooth";
-    } else if (name.includes("Headphone") || name.includes("Earbud") || name.includes("AirPods")) {
-      return "headphones-bluetooth"; 
+    } else if (
+      name.includes("Headphone") ||
+      name.includes("Earbud") ||
+      name.includes("AirPods")
+    ) {
+      return "headphones-bluetooth";
     } else if (name.includes("Keyboard")) {
-      return "keyboard-bluetooth"; 
+      return "keyboard-bluetooth";
     } else if (name.includes("Mouse")) {
-      return "mouse-bluetooth"; 
+      return "mouse-bluetooth";
     } else if (name.includes("Phone") || name.includes("iPhone")) {
-      return "cellphone"; 
+      return "cellphone";
     } else if (name.includes("Watch")) {
-      return "watch"; 
-  
-    // TV Brands
+      return "watch";
+
+      // TV Brands
     } else if (name.includes("Samsung")) {
       return "television";
     } else if (name.includes("LG")) {
       return "television-classic";
     } else if (name.includes("Sony")) {
       return "television";
-  
-    // iOS Devices
+
+      // iOS Devices
     } else if (name.includes("iPad")) {
       return "tablet-ipad";
     } else if (name.includes("MacBook")) {
       return "laptop-mac";
-  
-    // Default Bluetooth Icon for general Bluetooth devices
+
+      // Default Bluetooth Icon for general Bluetooth devices
     } else if (name.includes("Bluetooth")) {
       return "bluetooth"; // General Bluetooth icon
     }
-    
-    // Default for unknown or unclassified devices
-    return "bluetooth-connect"; 
 
+    // Default for unknown or unclassified devices
+    return "bluetooth-connect";
   };
-  
+
   return (
     <View
       style={[

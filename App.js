@@ -1,8 +1,8 @@
-import * as React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import DeviceScanner from './Components/DeviceScanner';
-import DeviceDetails from './Components/DeviceDetail';
+import * as React from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createStackNavigator } from "@react-navigation/stack";
+import DeviceScanner from "./Components/DeviceScanner";
+import DeviceDetails from "./Components/DeviceDetail";
 
 const Stack = createStackNavigator();
 

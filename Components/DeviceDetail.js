@@ -5,6 +5,8 @@ import {
   StyleSheet,
   ProgressBarAndroid,
   TouchableOpacity,
+  useColorScheme,
+  StatusBar,
 } from "react-native";
 import RNFS from "react-native-fs";
 import DocumentPicker from "react-native-document-picker";
@@ -34,6 +36,8 @@ const DeviceDetails = ({ route }) => {
     writeWithoutResponseCharacteristic,
     indicateCharacteristic,
   } = useBluetoothCharacteristics(deviceId);
+
+  const colorScheme = useColorScheme();
 
   const showToast = (type, title, message) => {
     Toast.show({
@@ -260,6 +264,10 @@ const DeviceDetails = ({ route }) => {
 
   return (
     <View style={styles.container}>
+      <StatusBar
+        barStyle={colorScheme === "dark" ? "light-content" : "dark-content"}
+        backgroundColor={colorScheme === "dark" ? "#000000" : "#FFFFFF"} // Adjust background color for contrast
+      />
       <View style={styles.fileContainer}>
         <View style={styles.fileTextContainer}>
           <Text style={styles.deviceText}>DeviceName : </Text>
