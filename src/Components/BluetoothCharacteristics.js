@@ -9,7 +9,7 @@ const showToast = (type, title, message) => {
     text1: title,
     text2: message,
     autoHide: true,
-    topOffset: 30,
+    topOffset: 20,
   });
 };
 

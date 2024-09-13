@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ProgressBarAndroid,
   TouchableOpacity,
   useColorScheme,
   StatusBar,
@@ -16,20 +15,25 @@ import Icon from "react-native-vector-icons/FontAwesome";
 import Icons from "react-native-vector-icons/MaterialCommunityIcons";
 import Toast from "react-native-toast-message";
 import toastConfig from "./ToastConfig";
+import { useNavigation } from "@react-navigation/native";
+import * as Progress from "react-native-progress";
 
 const CHUNK_LENGTH = 240;
 const SECTOR_SIZE = 8 * 1024;
 const BASE_ADDRESS = 0x080000;
 
 const DeviceDetails = ({ route }) => {
+  const navigation = useNavigation();
   const { deviceId, deviceName, rssi } = route.params;
   const [fileContent, setFileContent] = useState([]);
   const [fileLength, setFileLength] = useState(0);
   const [fileSize, setFileSize] = useState(0);
   const [fileName, setFileName] = useState("");
   const [nbSector, setNbSector] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [readyToReceive, setReadyToReceive] = useState(false);
+  const [progress, setProgress] = useState(0); 
+
+  let fileCont;
+  let fileLen;
 
   const {
     writeAddressCharacteristic,
@@ -67,7 +71,6 @@ const DeviceDetails = ({ route }) => {
               );
               const indication = confirmationValue.readUInt8(0);
               if (indication === 0x02) {
-                setReadyToReceive(true);
                 console.log("Device ready to receive file.");
                 sliceAndSend();
               } else if (indication === 0x01) {
@@ -107,6 +110,8 @@ const DeviceDetails = ({ route }) => {
       baseAddressData[3] = 0x00;
       baseAddressData[4] = sectorsToErase;
 
+      console.log(baseAddressData);
+
       const base64Data = baseAddressData.toString("base64");
 
       console.log("Writing base address data:", base64Data);
@@ -124,6 +129,10 @@ const DeviceDetails = ({ route }) => {
     let sectors = Math.ceil(length / SECTOR_SIZE);
     setNbSector(sectors);
   };
+  function base64ToHex(base64) {
+    const binaryString = atob(base64);
+    return binaryString;
+  }
 
   const handleFileChange = async () => {
     try {
@@ -139,12 +148,17 @@ const DeviceDetails = ({ route }) => {
       setFileSize(fileSize);
 
       const fileContentBase64 = await RNFS.readFile(fileUri, "base64");
-      const buffer = Buffer.from(fileContentBase64, "base64");
-      const uint8View = new Uint8Array(buffer);
-      setFileContent(uint8View);
+      console.log(fileContentBase64);
+      const uint8View = base64ToHex(fileContentBase64);
 
-      setFileLength(uint8View.length);
-      calculateNbSector(uint8View.length);
+      setFileContent(uint8View);
+      fileCont = uint8View;
+      console.log(fileContent);
+      const len = uint8View.length;
+      fileLen = uint8View.length;
+      setFileLength(len);
+      console.log("FileLength set to:", len);
+      calculateNbSector(len);
     } catch (err) {
       if (DocumentPicker.isCancel(err)) {
         console.log("Canceled from document picker");
@@ -160,6 +174,7 @@ const DeviceDetails = ({ route }) => {
   };
 
   const writeRawData = async (dataChunk) => {
+    console.log("writeRawData:", dataChunk);
     if (!writeWithoutResponseCharacteristic) {
       showToast(
         "error",
@@ -171,13 +186,19 @@ const DeviceDetails = ({ route }) => {
     }
 
     try {
-      const chunk = Buffer.from(dataChunk);
+      const chunk = new Uint8Array(dataChunk);
+
+      const baseAddressData = Buffer.alloc(240);
+      for (let i = 0; i < 240; i++) {
+        baseAddressData[i] = dataChunk[i];
+      }
       if (chunk.length > CHUNK_LENGTH) {
         throw new Error("Chunk size exceeds the maximum allowed size.");
       }
-      await writeWithoutResponseCharacteristic.writeWithoutResponse(
-        chunk.toString("base64")
-      );
+      console.log(baseAddressData);
+      const base64Data = chunk.toString("base64");
+      console.log(base64Data);
+      await writeWithoutResponseCharacteristic.writeWithoutResponse(base64Data);
       console.log("Raw data written:", dataChunk);
     } catch (error) {
       console.error("Error writing raw data:", error.message);
@@ -188,39 +209,37 @@ const DeviceDetails = ({ route }) => {
   const sliceAndSend = async () => {
     console.log("Start the SliceAndSend");
 
+    console.log("fileCont", fileLen);
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     let totalBytesSent = 0;
 
-    if (readyToReceive === true) {
-      console.log("readyToReceive: Slice the Chunk");
+    console.log("readyToReceive: Slice the Chunk", fileContent);
 
-      for (let start = 0; start < fileLength; start += CHUNK_LENGTH) {
-        const end = Math.min(start + CHUNK_LENGTH, fileLength);
-        const chunk = fileContent.slice(start, end);
+    for (let start = 0; start < fileLen; start += CHUNK_LENGTH) {
+      const end = Math.min(start + CHUNK_LENGTH, fileLen);
+      const chunk = fileCont.slice(start, end);
 
-        try {
-          await writeRawData(chunk);
+      try {
+        await writeRawData(chunk);
 
-          totalBytesSent += chunk.length;
-          setProgress((totalBytesSent / fileLength) * 100);
+        totalBytesSent += chunk.length;
+        console.log(totalBytesSent);
+        setProgress(totalBytesSent / fileLen); // Update progress as a fraction (0 to 1)
 
-          console.log(
-            `Chunk sent: ${chunk.length} bytes (${totalBytesSent} / ${fileLength})`
-          );
-
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        } catch (error) {
-          console.error(`Error sending chunk: ${error.message}`);
-          showToast(
-            "error",
-            "Upload Error",
-            `Error sending chunk: ${error.message}`
-          );
-          return;
-        }
+        console.log(`Chunk sent: ${chunk.length} bytes`);
+      } catch (error) {
+        console.error(`Error sending chunk: ${error.message}`);
+        showToast(
+          "error",
+          "Upload Error",
+          `Error sending chunk: ${error.message}`
+        );
+        return;
       }
-
-      await sendEndOfFileTransfer();
     }
+
+    await sendEndOfFileTransfer();
   };
 
   const sendEndOfFileTransfer = async () => {
@@ -236,7 +255,9 @@ const DeviceDetails = ({ route }) => {
         fileUploadFinished.toString("base64")
       );
       console.log("File upload finished successfully.");
-      showToast("success", "Success", "File upload finished successfully.");
+      navigation.navigate("DeviceScanner", {
+        showSuccessToast: true, // Pass this parameter to signal the toast
+      });
     } catch (error) {
       console.error("Error sending end of file transfer:", error.message);
       showToast("error", "Error", "Failed to send end of file transfer.");
@@ -249,13 +270,21 @@ const DeviceDetails = ({ route }) => {
     }
   }, [fileLength]);
 
+  useEffect(() => {
+    if (fileContent.length > 0) {
+      console.log("File content updated:");
+    } else {
+      console.log("File content is empty.");
+    }
+  }, [fileContent]);
+
   const handleUploadButtonClick = async () => {
     if (!nbSector) {
       return;
     }
     try {
+      console.log("nbSector", nbSector);
       await writeBaseAddress(0x02, BASE_ADDRESS, nbSector);
-      sliceAndSend();
     } catch (error) {
       console.error("Error starting file upload:", error.message);
       showToast("error", "Upload Error", "Failed to start file upload.");
@@ -286,7 +315,7 @@ const DeviceDetails = ({ route }) => {
 
       <TouchableOpacity style={styles.loadButton} onPress={handleFileChange}>
         <Text style={styles.buttonText}>Upload Firmware File</Text>
-        <Icon name="upload" size={30} color="#000" />
+        <Icon name="upload" size={30} color="#227B94" />
       </TouchableOpacity>
 
       {fileContent.length > 0 && (
@@ -310,14 +339,36 @@ const DeviceDetails = ({ route }) => {
             onPress={handleUploadButtonClick}
           >
             <Text style={styles.buttonupText}>Start Upload</Text>
-            <Icons name="rocket-launch-outline" size={20} color="#fff" />
+            <Icons name="rocket-launch-outline" size={20} color="#FFDC7F" />
           </TouchableOpacity>
+          {progress >= 0 && progress <= 1 && (
+            <View style={styles.barContainer}>
+              <Progress.Bar
+                progress={progress}
+                width={250}
+                height={7}
+                color="#FFDC7F"
+                unfilledColor="#FFF8DB"
+                borderColor="#fff"
+                borderRadius={10}
+                borderWidth={2}
+                style={styles.progressBar} // Apply styles to the progress bar
+              />
+              {/* <Icons 
+          name="rocket-launch-outline" 
+          size={15} 
+          color="#e74c3c" 
+          style={[
+            styles.icon, 
+            { left: `${progress * 100}%` }
+          ]}
+        /> */}
 
-          {progress > 0 && (
-            <ProgressBarAndroid
-              style={styles.progressBar}
-              progress={progress / 100}
-            />
+              {/* Percentage displayed within Text component */}
+              <Text style={styles.progressText}>{`${Math.round(
+                progress * 100
+              )}%`}</Text>
+            </View>
           )}
         </>
       )}
@@ -381,7 +432,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
-
     // Android Shadow (elevation)
     elevation: 5,
   },
@@ -406,11 +456,25 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
   },
-  progressBar: {
-    width: "100%",
-    height: 40,
-    marginTop: 16,
+  barContainer: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
   },
+  progressBar: {
+    marginVertical: 10,
+  },
+  progressText: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  // icon: {
+  //   position: 'absolute',
+  //   top: -10, // Adjust position relative to the progress bar
+  // },
 });
 
 export default DeviceDetails;

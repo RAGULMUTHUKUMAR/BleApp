@@ -8,69 +8,53 @@ import {
   ActivityIndicator,
   StatusBar,
   Alert,
-  PermissionsAndroid,
-  Platform,
   Animated,
   Easing,
   useColorScheme,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { BleManager } from "react-native-ble-plx";
+import Toast from "react-native-toast-message";
+import toastConfig from "./ToastConfig";
+import { requestPermissions, checkBluetoothStatus } from "./Utils/Permissions";
+import {
+  getManufacturerIcon,
+  getRssiColor,
+  getRssiIcon,
+} from "./Utils/DeviceUi";
 
 const bleManager = new BleManager();
 
-const requestPermissions = async () => {
-  if (Platform.OS === "android") {
-    try {
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE,
-      ]);
-
-      if (
-        granted["android.permission.ACCESS_FINE_LOCATION"] ===
-          PermissionsAndroid.RESULTS.GRANTED &&
-        granted["android.permission.BLUETOOTH_SCAN"] ===
-          PermissionsAndroid.RESULTS.GRANTED &&
-        granted["android.permission.BLUETOOTH_CONNECT"] ===
-          PermissionsAndroid.RESULTS.GRANTED &&
-        granted["android.permission.BLUETOOTH_ADVERTISE"] ===
-          PermissionsAndroid.RESULTS.GRANTED
-      ) {
-        console.log("All permissions granted");
-      } else {
-        Alert.alert(
-          "Permissions Denied",
-          "Required permissions were not granted."
-        );
-      }
-    } catch (err) {
-      console.warn(err);
-    }
-  }
-};
-
-const checkBluetoothStatus = async () => {
-  const state = await bleManager.state();
-  if (state !== "StatePoweredOn") {
-    Alert.alert(
-      "Bluetooth is off",
-      "Please enable Bluetooth to use this feature.",
-      [{ text: "OK" }]
-    );
-  }
-};
-
 const DeviceScanner = () => {
   const navigation = useNavigation();
+  const route = useRoute();
   const colorScheme = useColorScheme();
   const [scanning, setScanning] = useState(false);
   const [devices, setDevices] = useState([]);
   const [error, setError] = useState(null);
   const scanAnimation = useState(new Animated.Value(0))[0];
+
+  const showToast = (type, title, message) => {
+    Toast.show({
+      type,
+      position: "top",
+      text1: title,
+      text2: message,
+      autoHide: true,
+      topOffset: 30,
+    });
+  };
+
+  useEffect(() => {
+    if (route.params?.showSuccessToast) {
+      showToast(
+        "success",
+        "OTA Update Complete",
+        "The firmware has been successfully updated."
+      );
+    }
+  }, [route.params]);
 
   useEffect(() => {
     requestPermissions();
@@ -141,7 +125,7 @@ const DeviceScanner = () => {
     setTimeout(() => {
       bleManager.stopDeviceScan();
       setScanning(false);
-    }, 10000);
+    }, 20000);
   }, []);
 
   const handleDevicePress = (device) => {
@@ -150,50 +134,6 @@ const DeviceScanner = () => {
       deviceId: device.id,
       rssi: device.rssi,
     });
-  };
-
-  const getManufacturerIcon = (name) => {
-    if (!name) return "bluetooth-off"; // icon for unknown devices
-
-    // Specific Bluetooth Device Icons
-    if (name.includes("Speaker")) {
-      return "speaker-bluetooth";
-    } else if (
-      name.includes("Headphone") ||
-      name.includes("Earbud") ||
-      name.includes("AirPods")
-    ) {
-      return "headphones-bluetooth";
-    } else if (name.includes("Keyboard")) {
-      return "keyboard-bluetooth";
-    } else if (name.includes("Mouse")) {
-      return "mouse-bluetooth";
-    } else if (name.includes("Phone") || name.includes("iPhone")) {
-      return "cellphone";
-    } else if (name.includes("Watch")) {
-      return "watch";
-
-      // TV Brands
-    } else if (name.includes("Samsung")) {
-      return "television";
-    } else if (name.includes("LG")) {
-      return "television-classic";
-    } else if (name.includes("Sony")) {
-      return "television";
-
-      // iOS Devices
-    } else if (name.includes("iPad")) {
-      return "tablet-ipad";
-    } else if (name.includes("MacBook")) {
-      return "laptop-mac";
-
-      // Default Bluetooth Icon for general Bluetooth devices
-    } else if (name.includes("Bluetooth")) {
-      return "bluetooth"; // General Bluetooth icon
-    }
-
-    // Default for unknown or unclassified devices
-    return "bluetooth-connect";
   };
 
   return (
@@ -205,10 +145,11 @@ const DeviceScanner = () => {
     >
       <StatusBar
         barStyle={colorScheme === "dark" ? "light-content" : "dark-content"}
+        backgroundColor={colorScheme === "dark" ? "#000000" : "#FFFFFF"}
       />
       <TouchableOpacity style={styles.scanButton} onPress={scanDevices}>
         <MaterialCommunityIcons name="bluetooth" size={24} color="white" />
-        <Text style={styles.scanButtonText}>Scan for Devices</Text>
+        <Text style={styles.scanButtonText}>Scan for Bluetooth Devices</Text>
         {scanning && (
           <Animated.View
             style={[
@@ -233,6 +174,14 @@ const DeviceScanner = () => {
         <ActivityIndicator size="large" color="#ffffff" style={styles.loader} />
       )}
       {error && <Text style={styles.errorText}>{error}</Text>}
+
+      {/* Display number of devices */}
+      <View style={styles.deviceCountContainer}>
+        <Text style={styles.deviceCountText}>
+          {devices.length} {devices.length === 1 ? "device" : "devices"} found
+        </Text>
+      </View>
+
       <FlatList
         data={devices}
         keyExtractor={(item) => item.id}
@@ -252,36 +201,47 @@ const DeviceScanner = () => {
               color={colorScheme === "dark" ? "white" : "black"}
               style={styles.deviceIcon}
             />
-            <View style={styles.deviceInfo}>
-              <Text
-                style={[
-                  styles.deviceName,
-                  { color: colorScheme === "dark" ? "white" : "black" },
-                ]}
-              >
-                {item.name || "Unknown Device"}
-              </Text>
-              <Text
-                style={[
-                  styles.deviceId,
-                  { color: colorScheme === "dark" ? "#cccccc" : "black" },
-                ]}
-              >
-                ID: {item.id}
-              </Text>
-              <Text
-                style={[
-                  styles.deviceRssi,
-                  { color: colorScheme === "dark" ? "#cccccc" : "black" },
-                ]}
-              >
-                RSSI: {item.rssi || "N/A"} dBm
-              </Text>
+            <View style={styles.deviceInfoc}>
+              <View style={styles.deviceInfo}>
+                <Text
+                  style={[
+                    styles.deviceName,
+                    { color: colorScheme === "dark" ? "white" : "black" },
+                  ]}
+                >
+                  {item.name || "Unknown Device"}
+                </Text>
+                <Text
+                  style={[
+                    styles.deviceId,
+                    { color: colorScheme === "dark" ? "#cccccc" : "black" },
+                  ]}
+                >
+                  ID: {item.id}
+                </Text>
+                <Text
+                  style={[
+                    styles.deviceRssi,
+                    { color: colorScheme === "dark" ? "#cccccc" : "black" },
+                  ]}
+                >
+                  RSSI: {item.rssi || "N/A"} dBm
+                </Text>
+              </View>
+              <View style={styles.rssiContainer}>
+                <MaterialCommunityIcons
+                  name={getRssiIcon(item.rssi)}
+                  size={20}
+                  color={getRssiColor(item.rssi)}
+                />
+                <Text style={styles.rssiInfoc}>Signal</Text>
+              </View>
             </View>
           </TouchableOpacity>
         )}
         contentContainerStyle={styles.list}
       />
+      <Toast config={toastConfig} />
     </View>
   );
 };
@@ -300,7 +260,7 @@ const styles = StyleSheet.create({
   scanButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#007BFF",
+    backgroundColor: "#008ed3",
     padding: 15,
     borderRadius: 10,
     justifyContent: "center",
@@ -313,35 +273,49 @@ const styles = StyleSheet.create({
   scanButtonText: {
     color: "white",
     marginLeft: 10,
-    fontSize: 18,
+    fontSize: 16,
   },
   scanIndicator: {
     marginLeft: 10,
   },
   loader: {
-    marginVertical: 20,
+    marginTop: 20,
   },
   errorText: {
     color: "red",
-    marginVertical: 10,
-    textAlign: "center",
+    marginTop: 10,
+  },
+  deviceCountContainer: {
+    marginVertical: 5,
+    alignItems: "start",
+  },
+  deviceCountText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#fff",
   },
   deviceContainer: {
     flexDirection: "row",
-    padding: 15,
-    marginBottom: 10,
-    borderRadius: 10,
     alignItems: "center",
-    backgroundColor: "#f9f9f9",
-  },
-  lightDeviceContainer: {
-    backgroundColor: "#ffffff",
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ddd",
+    borderRadius: 8,
+    marginBottom: 10,
   },
   darkDeviceContainer: {
-    backgroundColor: "#2e2e2e",
+    backgroundColor: "#333",
+  },
+  lightDeviceContainer: {
+    backgroundColor: "#f9f9f9",
   },
   deviceIcon: {
-    marginRight: 15,
+    marginRight: 10,
+  },
+  deviceInfoc: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   deviceInfo: {
     flex: 1,
@@ -351,15 +325,23 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   deviceId: {
-    fontSize: 14,
-    marginTop: 5,
+    fontSize: 12,
+    color: "#555",
   },
   deviceRssi: {
     fontSize: 12,
-    marginTop: 5,
+    color: "#555",
+  },
+  rssiContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rssiInfoc: {
+    fontSize: 12,
+    color: "#555",
   },
   list: {
-    paddingTop: 10,
+    paddingBottom: 20,
   },
 });
 
