@@ -11,6 +11,9 @@ import RNFS from "react-native-fs";
 import DocumentPicker from "react-native-document-picker";
 import { Buffer } from "buffer";
 import { useBluetoothCharacteristics } from "./BluetoothCharacteristics";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import { MaterialIcons } from "@expo/vector-icons"; // Adjust this import according to your setup
+import Entypo from "react-native-vector-icons/Entypo"; // Importing Entypo icons
 import Icon from "react-native-vector-icons/FontAwesome";
 import Icons from "react-native-vector-icons/MaterialCommunityIcons";
 import Toast from "react-native-toast-message";
@@ -25,12 +28,17 @@ const BASE_ADDRESS = 0x080000;
 const DeviceDetails = ({ route }) => {
   const navigation = useNavigation();
   const { deviceId, deviceName, rssi } = route.params;
+
+  const [ledStatus, setLedStatus] = useState(false);
+  const [buttonStatus, setButtonStatus] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState("");
   const [fileContent, setFileContent] = useState([]);
   const [fileLength, setFileLength] = useState(0);
   const [fileSize, setFileSize] = useState(0);
   const [fileName, setFileName] = useState("");
   const [nbSector, setNbSector] = useState(0);
-  const [progress, setProgress] = useState(0); 
+  const [progress, setProgress] = useState(0);
+  const [activeMode, setActiveMode] = useState(null); // 'ota' or 'p2p'
 
   let fileCont;
   let fileLen;
@@ -39,6 +47,8 @@ const DeviceDetails = ({ route }) => {
     writeAddressCharacteristic,
     writeWithoutResponseCharacteristic,
     indicateCharacteristic,
+    p2pLedCharacteristic,
+    p2pSwitchCharacteristic,
   } = useBluetoothCharacteristics(deviceId);
 
   const colorScheme = useColorScheme();
@@ -55,15 +65,11 @@ const DeviceDetails = ({ route }) => {
   };
 
   useEffect(() => {
-    if (indicateCharacteristic) {
+    if (activeMode === "ota") {
+      // Subscribe to OTA notifications
       const monitorConfirmation = () => {
         try {
           indicateCharacteristic.monitor((error, characteristic) => {
-            if (error) {
-              console.error("Error monitoring confirmation:", error.message);
-              return;
-            }
-
             if (characteristic?.value) {
               const confirmationValue = Buffer.from(
                 characteristic.value,
@@ -86,10 +92,101 @@ const DeviceDetails = ({ route }) => {
           console.error("Error starting monitor:", error.message);
         }
       };
-
       monitorConfirmation();
+    } else if (activeMode === "p2p") {
+      // Subscribe to P2P notifications
+      const subscribeToP2pNotifications = async () => {
+        if (p2pSwitchCharacteristic) {
+          try {
+            await p2pSwitchCharacteristic.monitor(
+              (error, p2pCharacteristic) => {
+                if (error) {
+                  console.error("p2pNotification error: ", error.message);
+                  return;
+                }
+                if (p2pCharacteristic?.value) {
+                  handleP2pNotification(p2pCharacteristic.value);
+                }
+              }
+            );
+          } catch (err) {
+            console.error(
+              "Error subscribing to p2pNotification: ",
+              err.message
+            );
+          }
+        }
+      };
+      subscribeToP2pNotifications();
     }
-  }, [indicateCharacteristic]);
+
+    // Unsubscribe when switching modes
+    return () => {
+      if (activeMode === "ota") {
+        // Unsubscribe OTA notifications
+        indicateCharacteristic?.monitor?.(null); // Stop OTA monitoring
+      } else if (activeMode === "p2p") {
+        // Unsubscribe P2P notifications
+        p2pSwitchCharacteristic?.monitor?.(null); // Stop P2P monitoring
+      }
+    };
+  }, [activeMode, indicateCharacteristic, p2pSwitchCharacteristic]);
+
+  const handleP2pNotification = (value) => {
+    const decodedValue = Buffer.from(value, "base64").toString("hex");
+    const buttonSelection = parseInt(decodedValue.slice(2, 4), 16);
+    const lastUpdateTimestamp = new Date().toLocaleTimeString();
+    setButtonStatus(buttonSelection);
+    setLastUpdated(lastUpdateTimestamp);
+  };
+
+  const writeP2pCharacteristicValue = async (p2pLedCharacteristic, value) => {
+    if (!p2pLedCharacteristic) {
+      console.error("Characteristic is undefined");
+      showToast("error", "Error", "Characteristic is undefined.");
+      return;
+    }
+    try {
+      const bufferValue = Buffer.from(value);
+      const base64Value = bufferValue.toString("base64");
+
+      console.log(
+        `Attempting to write value to characteristic:`,
+        p2pLedCharacteristic.uuid,
+        base64Value
+      );
+
+      await p2pLedCharacteristic.writeWithoutResponse(base64Value);
+      console.log(
+        `Value written to ${p2pLedCharacteristic.uuid}: ${base64Value}`
+      );
+    } catch (error) {
+      console.error(
+        `Error writing value to characteristic ${p2pLedCharacteristic.uuid}:`,
+        error.message
+      );
+      showToast("error", "Error", "Failed to write characteristic value.");
+    }
+  };
+
+  const toggleLed = async () => {
+    if (!p2pLedCharacteristic) {
+      console.error("p2pLedCharacteristic is undefined");
+      showToast("error", "Error", "LED characteristic is undefined.");
+      return;
+    }
+
+    const value = ledStatus ? [0x01, 0x00] : [0x01, 0x01]; // Off: [0x01, 0x00], On: [0x01, 0x01]
+
+    try {
+      await writeP2pCharacteristicValue(p2pLedCharacteristic, value);
+      setLedStatus(!ledStatus);
+      console.log(`LED status updated to: ${!ledStatus}`);
+    } catch (error) {
+      console.error("Error toggling LED:", error.message);
+      showToast("error", "Error", "Failed to toggle LED.");
+    }
+  };
 
   const writeBaseAddress = async (action, addressOffset, sectorsToErase) => {
     if (!writeAddressCharacteristic) {
@@ -311,6 +408,23 @@ const DeviceDetails = ({ route }) => {
           <Text>{rssi} dbm</Text>
         </View>
       </View>
+
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => setActiveMode("ota")} // Set active mode to OTA
+        >
+          <Entypo name="soundcloud" size={24} color="#008ed3" />
+          <Text style={styles.buttonText}>OTA</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => setActiveMode("p2p")} // Set active mode to P2P
+        >
+          <MaterialIcons name="device-hub" size={24} color="#008ed3" />
+          <Text style={styles.buttonText}>P2P</Text>
+        </TouchableOpacity>
+      </View>
       <Text style={styles.title}>OTA Firmware Update</Text>
 
       <TouchableOpacity style={styles.loadButton} onPress={handleFileChange}>
@@ -352,19 +466,8 @@ const DeviceDetails = ({ route }) => {
                 borderColor="#fff"
                 borderRadius={10}
                 borderWidth={2}
-                style={styles.progressBar} // Apply styles to the progress bar
+                style={styles.progressBar}
               />
-              {/* <Icons 
-          name="rocket-launch-outline" 
-          size={15} 
-          color="#e74c3c" 
-          style={[
-            styles.icon, 
-            { left: `${progress * 100}%` }
-          ]}
-        /> */}
-
-              {/* Percentage displayed within Text component */}
               <Text style={styles.progressText}>{`${Math.round(
                 progress * 100
               )}%`}</Text>
@@ -373,12 +476,112 @@ const DeviceDetails = ({ route }) => {
         </>
       )}
 
+      <Text style={styles.title}>P2P_SERVICE</Text>
+      <View style={styles.p2pcontainer}>
+        <View style={styles.p2pButton}>
+          <Text style={styles.p2ptitle}>Button Indicator</Text>
+          {buttonStatus === 1 ? (
+            <Entypo name="light-up" size={45} color="#FFDC7F" />
+          ) : (
+            <Entypo name="light-down" size={45} color="#16325B" />
+          )}
+          <Text style={styles.info}>Button Status: {buttonStatus}</Text>
+          <Text style={styles.info}>Last Updated: {lastUpdated}</Text>
+        </View>
+        <View style={styles.p2pLed}>
+          <Text style={styles.p2ptitle}>LED Indicator</Text>
+          <TouchableOpacity onPress={toggleLed}>
+            <MaterialCommunityIcons
+              name={ledStatus ? "led-on" : "led-outline"}
+              size={55}
+              color={ledStatus ? "#FFEA11" : "#EADEA6"}
+            />
+          </TouchableOpacity>
+          <Text style={styles.info}>{ledStatus ? "LED ON" : "LED OFF"}</Text>
+        </View>
+      </View>
+
       <Toast config={toastConfig} />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    marginVertical: 20,
+    paddingHorizontal: 10,
+  },
+  headerButton: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+    backgroundColor: "#fff",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  buttonText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#fff",
+    textAlign: "center",
+  },
+  p2pcontainer: {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: "#F7F2E7",
+    padding: 15,
+    borderRadius: 10,
+
+    // iOS Shadow
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 }, // Deeper shadow
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+
+    // Android Shadow (elevation)
+    elevation: 8,
+  },
+
+  p2pButton: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+  p2pLed: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+
+  info: {
+    fontSize: 12,
+  },
+  button: {
+    padding: 10,
+    borderRadius: 5,
+  },
+  ledButton: {
+    backgroundColor: "#007bff",
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 16,
+  },
   container: {
     flex: 1,
     padding: 16,
@@ -393,10 +596,14 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   title: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "600",
-    marginBottom: 24,
+    marginBottom: 15,
     color: "#333",
+  },
+  p2ptitle: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   fileContainer: {
     display: "flex",
@@ -471,10 +678,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#000",
   },
-  // icon: {
-  //   position: 'absolute',
-  //   top: -10, // Adjust position relative to the progress bar
-  // },
 });
 
 export default DeviceDetails;
